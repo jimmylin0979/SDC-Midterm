@@ -49,6 +49,11 @@ private:
     float gps_y;
     float gps_yaw;
 
+    float exp_a = 0.98;
+    float pre_pose_x;
+    float pre_pose_y;
+    float pre_pose_yaw;
+
     int seq = 0;
     int max_iter = 100;
     float epsilon1 = 1e-9;
@@ -183,9 +188,13 @@ public:
             // printf ("Translation vector :\n");
             // printf ("t = < %6.3f, %6.3f, %6.3f >\n\n", transformation(0, 3), transformation(1, 3), transformation(2, 3));
         
+            pre_pose_x = pose_x;
+            pre_pose_y = pose_y;
+            pre_pose_yaw = pose_yaw;
+
             pose_x = transformation(0, 3);
             pose_y = transformation(1, 3);
-            
+
             // assuming rotation is represented as quaternion and converting it to yaw
             // Eigen::Matrix3f rotation_matrix = transformation.block<3, 3>(0, 0);
             // Eigen::Vector3f euler_angles = rotation_matrix.eulerAngles(2, 1, 0); // ZYX order 
@@ -227,7 +236,12 @@ public:
         // Implenment any scan matching base on initial guess, ICP, NDT, etc.
         // Assign the result to pose_x, pose_y, pose_yaw
         // Use result as next time initial guess
-        ICP(radar_pc, map_pc, output_pc, pose_x, pose_y, pose_yaw);    // 
+        ICP(radar_pc, map_pc, output_pc, pose_x, pose_y, pose_yaw);    //
+        
+        pose_x = pose_x * exp_a + pre_pose_x * (1 - exp_a);
+        pose_y = pose_y * exp_a + pre_pose_y * (1 - exp_a);
+        pose_yaw = pose_yaw * exp_a + pre_pose_yaw * (1 - exp_a);
+        
         set_init_guess(pose_x, pose_y, pose_yaw);
 
         tf_brocaster(pose_x, pose_y, pose_yaw);
