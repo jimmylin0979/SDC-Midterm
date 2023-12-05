@@ -56,8 +56,8 @@ private:
 
     int seq = 0;
     int max_iter = 100;
-    float epsilon1 = 1e-9;
-    float epsilon2 = 1e-8;
+    float epsilon1 = 1e-5;
+    float epsilon2 = 1e-5;
     float correspond = 3;
 
     Eigen::Matrix4f init_guess;

@@ -67,7 +67,7 @@ pcl::PointCloud<pcl::PointXYZI>::Ptr create_radar_pc(Mat img)
         // 
         sort(points.begin(), points.end(), intensity_compare);
         for (int i = 0; i < points.size(); i++) {
-            if (i > 30)   break;
+            if (i > 20)   break;
             new_pc->push_back(points[i]);
         }
     }
