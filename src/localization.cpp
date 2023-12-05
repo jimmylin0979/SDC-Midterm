@@ -34,11 +34,11 @@ private:
     ros::Publisher radar_pc_pub;
     ros::Publisher radar_pose_pub;
     ros::Publisher path_pub;
-    
+
     pcl::PointCloud<pcl::PointXYZI>::Ptr map_pc;
     nav_msgs::Path path;
     tf::TransformBroadcaster br;
-    
+
     std::string save_path;
     std::ofstream file;
 
@@ -50,10 +50,10 @@ private:
     float gps_yaw;
 
     int seq = 0;
-    int max_iter;
-    float epsilon1;
-    float epsilon2;
-    float correspond;
+    int max_iter = 100;
+    float epsilon1 = 1e-9;
+    float epsilon2 = 1e-8;
+    float correspond = 3;
 
     Eigen::Matrix4f init_guess;
 
@@ -66,13 +66,13 @@ public:
     {
         map_ready = false;
         gps_ready = false;
-        
+
         _nh = nh;
         _nh.param<string>("/save_path", save_path, "/Default/path");
 
         init_guess.setIdentity();
         file.open(save_path);
-        file << "seq,x,y,yaw\n";
+        file << "id,x,y,yaw\n";
 
         radar_pc_sub = _nh.subscribe("/radar_pc", 400, &Localizer::radar_pc_callback, this);
         map_sub = _nh.subscribe("/map_pc", 1, &Localizer::map_callback, this);
@@ -89,7 +89,7 @@ public:
         file.close();
     }
 
-    void gps_callback(const geometry_msgs::PoseStamped::ConstPtr& msg)
+    void gps_callback(const geometry_msgs::PoseStamped::ConstPtr &msg)
     {
         ROS_WARN("Got GPS data");
         gps_x = msg->pose.position.x;
@@ -98,13 +98,12 @@ public:
             msg->pose.orientation.x,
             msg->pose.orientation.y,
             msg->pose.orientation.z,
-            msg->pose.orientation.w
-        );
+            msg->pose.orientation.w);
         tf::Matrix3x3 m(q);
         double r, p, yaw;
         m.getRPY(r, p, yaw);
         gps_yaw = yaw;
-        if(!gps_ready)
+        if (!gps_ready)
         {
             pose_x = gps_x;
             pose_y = gps_y;
@@ -113,14 +112,97 @@ public:
         }
     }
 
-    void map_callback(const sensor_msgs::PointCloud2::ConstPtr& msg)
+    void map_callback(const sensor_msgs::PointCloud2::ConstPtr &msg)
     {
         ROS_WARN("Got Map Pointcloud");
         pcl::fromROSMsg(*msg, *map_pc);
         map_ready = true;
     }
 
-    void radar_pc_callback(const sensor_msgs::PointCloud2::ConstPtr& msg)
+    void ICP(
+            pcl::PointCloud<pcl::PointXYZI>::Ptr source_pc, 
+            pcl::PointCloud<pcl::PointXYZI>::Ptr target_pc, 
+            pcl::PointCloud<pcl::PointXYZI>::Ptr output_pc,
+            float &pose_x, 
+            float &pose_y, 
+            float &pose_yaw
+        ) {
+        /*
+        * params
+        * input
+        *           source_pc    the point cloud to begin from
+        *           target_pc    the point cloud which we want cloud_in to look like
+        * output
+        *           pose_x      pose_x
+        *           pose_y      pose_y
+        *           pose_yaw    pose_yaw
+        * returns
+        */
+
+        // ICP         
+        // Reference: https://pcl.readthedocs.io/projects/tutorials/en/master/iterative_closest_point.html#iterative-closest-point
+        // Reference: https://zhuanlan.zhihu.com/p/107218828
+        pcl::IterativeClosestPoint<pcl::PointXYZI, pcl::PointXYZI> icp;
+
+        // 
+        // pcl::transformPointCloud(*source_pc, *source_pc, init_guess);
+        icp.setInputSource(source_pc);
+        icp.setInputTarget(target_pc);
+
+        // set ICP parameters if needed
+        icp.setMaxCorrespondenceDistance(correspond);  // m
+        icp.setMaximumIterations(max_iter);
+
+        // One of the convergence criterion. 
+        // If the sum of differences between current and last transformation is smaller than this threshold, 
+        //          the registration succeeded and will terminated.
+        icp.setTransformationEpsilon(epsilon1);
+
+        // 
+        icp.setEuclideanFitnessEpsilon(epsilon2);
+        
+        // create res to save the resultant cloud after applying the ICP algorithm.
+        // pcl::PointCloud<pcl::PointXYZI> res_pc;
+        icp.align(*output_pc, init_guess);   // comment when map_pc -> radar_pc
+        // icp.align(*output_pc);
+
+        // if the two PointClouds align correctly (meaning they are both the same cloud merely with some kind of rigid transformation applied to one of them)
+        //      then icp.hasConverged() = 1 (true). 
+        // it then outputs the fitness score of the final transformation and some information about it.
+        if (icp.hasConverged()) {
+            // obtain the transformation that aligned source_pc to res_pc
+            int score = icp.getFitnessScore();
+            Eigen::Matrix4f transformation = icp.getFinalTransformation();
+            
+            cout << "[DEBUG] ICP converge success!" << endl;
+            cout << transformation << endl;
+            // printf ("Rotation matrix :\n");
+            // printf ("R = | %6.3f %6.3f %6.3f | \n", transformation(0, 0), transformation(0, 1), transformation(0, 2));
+            // printf ("    | %6.3f %6.3f %6.3f | \n", transformation(1, 0), transformation(1, 1), transformation(1, 2));
+            // printf ("    | %6.3f %6.3f %6.3f | \n", transformation(2, 0), transformation(2, 1), transformation(2, 2));
+            // printf ("Translation vector :\n");
+            // printf ("t = < %6.3f, %6.3f, %6.3f >\n\n", transformation(0, 3), transformation(1, 3), transformation(2, 3));
+        
+            pose_x = transformation(0, 3);
+            pose_y = transformation(1, 3);
+            
+            // assuming rotation is represented as quaternion and converting it to yaw
+            // Eigen::Matrix3f rotation_matrix = transformation.block<3, 3>(0, 0);
+            // Eigen::Vector3f euler_angles = rotation_matrix.eulerAngles(2, 1, 0); // ZYX order 
+            // pose_yaw = euler_angles(2);
+            pose_yaw = atan2(transformation(1, 0), transformation(0, 0));
+
+        } else {
+            // TODO ROS_ERROR
+            cout << "[DEBUG] ICP converge failed!" << endl;
+            // float alpha = 0.8;
+            // pose_x = alpha * gps_x + (1 - alpha) * pose_x;
+			// pose_y = alpha * gps_y + (1 - alpha) * pose_y;
+			// pose_yaw = alpha * gps_yaw + (1 - alpha) * pose_yaw;
+        }
+    }
+
+    void radar_pc_callback(const sensor_msgs::PointCloud2::ConstPtr &msg)
     {
         ROS_WARN("Got Radar Pointcloud");
         pcl::PointCloud<pcl::PointXYZI>::Ptr radar_pc(new pcl::PointCloud<pcl::PointXYZI>);
@@ -128,8 +210,8 @@ public:
         pcl::fromROSMsg(*msg, *radar_pc);
         ROS_INFO("point size: %d", radar_pc->width);
 
-        while(!(map_ready && gps_ready))
-        { 
+        while (!(map_ready && gps_ready))
+        {
             ROS_WARN("Wait for map and gps ready");
             ros::Duration(0.1).sleep();
             ros::spinOnce();
@@ -137,13 +219,17 @@ public:
 
         if(!initialized)
         {
-            /*TODO : Initialize initial guess*/
+            // Initialize initial guess
+            set_init_guess(pose_x, pose_y, pose_yaw);
+            initialized = true;
         }
 
-        /*TODO : Implenment any scan matching base on initial guess, ICP, NDT, etc. */
-        /*TODO : Assign the result to pose_x, pose_y, pose_yaw */
-        /*TODO : Use result as next time initial guess */
-        
+        // Implenment any scan matching base on initial guess, ICP, NDT, etc.
+        // Assign the result to pose_x, pose_y, pose_yaw
+        // Use result as next time initial guess
+        ICP(radar_pc, map_pc, output_pc, pose_x, pose_y, pose_yaw);    // 
+        set_init_guess(pose_x, pose_y, pose_yaw);
+
         tf_brocaster(pose_x, pose_y, pose_yaw);
         radar_pose_publisher(pose_x, pose_y, pose_yaw);
 
@@ -182,7 +268,7 @@ public:
         pose.pose.orientation.z = myQuaternion.getZ();
         pose.pose.orientation.w = myQuaternion.getW();
         radar_pose_pub.publish(pose);
-        
+
         path.header.frame_id = "map";
         pose.header.stamp = ros::Time::now();
         path.poses.push_back(pose);
@@ -190,10 +276,10 @@ public:
     }
 
     void tf_brocaster(float x, float y, float yaw)
-    {  
+    {
         ROS_INFO("Update map to baselink");
         tf::Transform transform;
-        transform.setOrigin( tf::Vector3(x, y, 0) );
+        transform.setOrigin(tf::Vector3(x, y, 0));
         tf::Quaternion q;
         q.setRPY(0, 0, yaw);
         transform.setRotation(q);
@@ -208,15 +294,14 @@ public:
         init_guess(0, 3) = x;
 
         init_guess(1, 0) = sin(yaw);
-        init_guess(1, 1) = -sin(yaw);
+        init_guess(1, 1) = cos(yaw);
         init_guess(1, 3) = y;
     }
 };
 
-
-int main(int argc, char** argv) 
+int main(int argc, char **argv)
 {
-    ros::init (argc, argv, "localizer");
+    ros::init(argc, argv, "localizer");
     ros::NodeHandle nh;
     Localizer Localizer(nh);
 

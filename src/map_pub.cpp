@@ -13,9 +13,9 @@
 #include <pcl/filters/passthrough.h>
 
 #include <tf/transform_broadcaster.h>
-#include<geometry_msgs/PointStamped.h>
-#include<geometry_msgs/PoseStamped.h>
-#include<geometry_msgs/PoseWithCovarianceStamped.h>
+#include <geometry_msgs/PointStamped.h>
+#include <geometry_msgs/PoseStamped.h>
+#include <geometry_msgs/PoseWithCovarianceStamped.h>
 
 using namespace ros;
 using namespace std;
@@ -50,9 +50,9 @@ public:
         ROS_INFO("Exit Map Publisher");
     }
 
-    void gps_call_back(const geometry_msgs::PoseStamped::ConstPtr& msg)
+    void gps_call_back(const geometry_msgs::PoseStamped::ConstPtr &msg)
     {
-        if(!initialized)
+        if (!initialized)
         {
             int x = ((int)msg->pose.position.x);
             int y = ((int)msg->pose.position.y);
@@ -65,36 +65,36 @@ public:
     {
         flag = false;
         sensor_msgs::PointCloud2 map_pc;
-        pcl::PointCloud<pcl::PointXYZI>::Ptr cloud (new pcl::PointCloud<pcl::PointXYZI>);
-        pcl::PointCloud<pcl::PointXYZI>::Ptr sum (new pcl::PointCloud<pcl::PointXYZI>);
+        pcl::PointCloud<pcl::PointXYZI>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZI>);
+        pcl::PointCloud<pcl::PointXYZI>::Ptr sum(new pcl::PointCloud<pcl::PointXYZI>);
 
-        if(x<0)
-            x = (x-50)/50; 
+        if (x < 0)
+            x = (x - 50) / 50;
         else
-            x = x/50;
+            x = x / 50;
 
-        if(y<0)
-            y = (y-50)/50;
+        if (y < 0)
+            y = (y - 50) / 50;
         else
-            y = y/50;
+            y = y / 50;
 
-        for(int i=x-2; i<x+3; i++)
+        for (int i = x - 2; i < x + 3; i++)
         {
-            for(int j=y-2; j<y+3; j++)
-            {   
-                string map_file = map_path + "submap_" + to_string(i) +  "_" + to_string(j) + ".pcd";
+            for (int j = y - 2; j < y + 3; j++)
+            {
+                string map_file = map_path + "submap_" + to_string(i) + "_" + to_string(j) + ".pcd";
                 ifstream f(map_file);
-        
-                if(!f)
+
+                if (!f)
                 {
                     continue;
                 }
-                if (pcl::io::loadPCDFile<pcl::PointXYZI> (map_file, *cloud) == -1) //* load the file
+                if (pcl::io::loadPCDFile<pcl::PointXYZI>(map_file, *cloud) == -1) //* load the file
                 {
-                    PCL_ERROR ("Couldn't read file test_pcd.pcd \n");
+                    PCL_ERROR("Couldn't read file test_pcd.pcd \n");
                     return;
                 }
-                
+
                 *sum += *cloud;
             }
         }
@@ -109,54 +109,54 @@ public:
         last_y = y;
     }
 
-    void radar_pose_callback(const geometry_msgs::PoseStamped::ConstPtr& msg)
+    void radar_pose_callback(const geometry_msgs::PoseStamped::ConstPtr &msg)
     {
         int x = ((int)msg->pose.position.x);
         int y = ((int)msg->pose.position.y);
-        if(!initialized)
+        if (!initialized)
         {
             return;
         }
         else
         {
-            if(x<0)
-                x = (x-50)/50; 
+            if (x < 0)
+                x = (x - 50) / 50;
             else
-                x = x/50;
+                x = x / 50;
 
-            if(y<0)
-                y = (y-50)/50;
+            if (y < 0)
+                y = (y - 50) / 50;
             else
-                y = y/50;
-        
-            if(x!=last_x || y!=last_y)
+                y = y / 50;
+
+            if (x != last_x || y != last_y)
                 flag = true;
         }
 
-        if(flag)
+        if (flag)
         {
             flag = false;
             last_x = x;
             last_y = y;
 
             sensor_msgs::PointCloud2 map_pc;
-            pcl::PointCloud<pcl::PointXYZI>::Ptr cloud (new pcl::PointCloud<pcl::PointXYZI>);
-            pcl::PointCloud<pcl::PointXYZI>::Ptr sum (new pcl::PointCloud<pcl::PointXYZI>);
+            pcl::PointCloud<pcl::PointXYZI>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZI>);
+            pcl::PointCloud<pcl::PointXYZI>::Ptr sum(new pcl::PointCloud<pcl::PointXYZI>);
 
-            for(int i=x-2; i<x+3; i++)
+            for (int i = x - 2; i < x + 3; i++)
             {
-                for(int j=y-2; j<y+3; j++)
+                for (int j = y - 2; j < y + 3; j++)
                 {
-                    string map_file = map_path + "submap_" + to_string(i) +  "_" + to_string(j) + ".pcd";
+                    string map_file = map_path + "submap_" + to_string(i) + "_" + to_string(j) + ".pcd";
                     ifstream f(map_file);
-            
-                    if(!f)
+
+                    if (!f)
                     {
                         continue;
                     }
-                    if (pcl::io::loadPCDFile<pcl::PointXYZI> (map_file, *cloud) == -1) //* load the file
+                    if (pcl::io::loadPCDFile<pcl::PointXYZI>(map_file, *cloud) == -1) //* load the file
                     {
-                        PCL_ERROR ("Couldn't read file test_pcd.pcd \n");
+                        PCL_ERROR("Couldn't read file test_pcd.pcd \n");
                         return;
                     }
                     *sum += *cloud;
@@ -164,21 +164,21 @@ public:
             }
 
             pcl::toROSMsg(*sum, map_pc);
-            for(int i=0; i<3; i++)
+            for (int i = 0; i < 3; i++)
             {
                 map_pc.header.stamp = ros::Time::now();
                 map_pc.header.frame_id = "map";
                 map_pub.publish(map_pc);
-                ROS_WARN("Publish Map [%d, %d] : %ld points", x, y, sum->points.size());   
+                ROS_WARN("Publish Map [%d, %d] : %ld points", x, y, sum->points.size());
                 ros::Duration(0.1).sleep();
-            }   
+            }
         }
     }
 };
 
-int main(int argc, char** argv) 
+int main(int argc, char **argv)
 {
-    ros::init (argc, argv, "map_publisher");
+    ros::init(argc, argv, "map_publisher");
     ros::NodeHandle nh;
     map_publisher map_publisher(nh);
     ros::spin();
