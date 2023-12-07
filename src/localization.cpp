@@ -2,6 +2,7 @@
 #include <fstream>
 #include <iostream>
 #include <cmath>
+#include <unordered_map>
 
 #include <ros/ros.h>
 #include <sensor_msgs/PointCloud2.h>
@@ -13,6 +14,8 @@
 #include <pcl/filters/passthrough.h>
 #include <pcl/registration/icp.h>
 #include <pcl_ros/transforms.h>
+
+#include <Eigen/Dense>
 
 #include <tf/tf.h>
 #include <tf/transform_broadcaster.h>
@@ -53,6 +56,11 @@ private:
     float pre_pose_x;
     float pre_pose_y;
     float pre_pose_yaw;
+
+    ros::Time pre_time;
+    float pre_pose_vx = 0.0;
+    float pre_pose_vy = 0.0;
+    float pre_pose_vyaw = 0.0;
 
     int seq = 0;
     int max_iter = 100;
@@ -188,10 +196,6 @@ public:
             // printf ("Translation vector :\n");
             // printf ("t = < %6.3f, %6.3f, %6.3f >\n\n", transformation(0, 3), transformation(1, 3), transformation(2, 3));
         
-            pre_pose_x = pose_x;
-            pre_pose_y = pose_y;
-            pre_pose_yaw = pose_yaw;
-
             pose_x = transformation(0, 3);
             pose_y = transformation(1, 3);
 
@@ -211,6 +215,59 @@ public:
         }
     }
 
+    pcl::PointCloud<pcl::PointXYZI>::Ptr motion_compensation(pcl::PointCloud<pcl::PointXYZI>::Ptr radar_pc) 
+    {
+        // Calculate translation & rotation distortion terms 
+        float delta_t = 0.25;
+        int num_azimuths = 400;
+
+        // Group the point into its azumith slot 
+        unordered_map<int, pcl::PointCloud<pcl::PointXYZI>::Ptr> pc_mapping;
+        for (int i = 0; i < radar_pc->size(); i++) {
+            int azimuth_idx = atan2(radar_pc->points[i].y, radar_pc->points[i].x) / (2 * M_PI / num_azimuths);
+            if (pc_mapping.find(azimuth_idx) == pc_mapping.end()) {
+                pcl::PointCloud<pcl::PointXYZI>::Ptr pc_ptr(new pcl::PointCloud<pcl::PointXYZI>);
+                pc_mapping[azimuth_idx] = pc_ptr;
+            }
+            pc_mapping[azimuth_idx]->push_back(radar_pc->points[i]);
+        }
+
+        pcl::PointCloud<pcl::PointXYZI>::Ptr new_pc(new pcl::PointCloud<pcl::PointXYZI>);
+        for (int i = 0; i < num_azimuths; i++) {
+
+            // Calculate the translation & rotation distortion terms
+            float time_offset = ((float)i - (float)num_azimuths / 2) * delta_t / 2;
+            float distortion_x = time_offset * pre_pose_vx;
+            float distortion_y = time_offset * pre_pose_vy;
+            float distortion_yaw = time_offset * pre_pose_vyaw;
+
+            //
+            cout << "time_offset " << time_offset << "." << endl;
+            cout << "distortion_x " << distortion_x << "." << endl;
+            cout << "distortion_y " << distortion_y << "." << endl;
+            cout << "distortion_yaw " << distortion_yaw << "." << endl;
+
+            // Apply distortion transformation
+            Eigen::Translation<float, 2> translation(distortion_x, distortion_y);
+            Eigen::Rotation2D<float> rotation(distortion_yaw);
+            Eigen::Affine2f distortion_transform = translation * rotation;
+
+            for (int j = 0; j < pc_mapping[i]->size(); j++) {
+                Eigen::Vector2f point1(pc_mapping[i]->points[j].x, pc_mapping[i]->points[j].y);
+                Eigen::Vector2f transformed_point = distortion_transform * point1;
+                
+                pcl::PointXYZI point;
+                point.x = transformed_point(0);
+                point.y = transformed_point(1);;    
+                point.z = pc_mapping[i]->points[j].z;
+                point.intensity = pc_mapping[i]->points[j].intensity;
+                new_pc->push_back(point);
+            }
+        }
+
+        return new_pc;
+    }
+
     void radar_pc_callback(const sensor_msgs::PointCloud2::ConstPtr &msg)
     {
         ROS_WARN("Got Radar Pointcloud");
@@ -218,6 +275,8 @@ public:
         pcl::PointCloud<pcl::PointXYZI>::Ptr output_pc(new pcl::PointCloud<pcl::PointXYZI>);
         pcl::fromROSMsg(*msg, *radar_pc);
         ROS_INFO("point size: %d", radar_pc->width);
+        // pcl::PointCloud<pcl::PointXYZI>::Ptr compensated_radar_pc = motion_compensation(radar_pc);
+        // ROS_INFO("point size: %d", compensated_radar_pc->width);
 
         while (!(map_ready && gps_ready))
         {
@@ -231,17 +290,33 @@ public:
             // Initialize initial guess
             set_init_guess(pose_x, pose_y, pose_yaw);
             initialized = true;
+            pre_time = ros::Time::now();
         }
+
+        // Record the previous poses
+        pre_pose_x = pose_x;
+        pre_pose_y = pose_y;
+        pre_pose_yaw = pose_yaw;
 
         // Implenment any scan matching base on initial guess, ICP, NDT, etc.
         // Assign the result to pose_x, pose_y, pose_yaw
         // Use result as next time initial guess
         ICP(radar_pc, map_pc, output_pc, pose_x, pose_y, pose_yaw);    //
         
-        pose_x = pose_x * exp_a + pre_pose_x * (1 - exp_a);
-        pose_y = pose_y * exp_a + pre_pose_y * (1 - exp_a);
-        pose_yaw = pose_yaw * exp_a + pre_pose_yaw * (1 - exp_a);
-        
+        // // Update the current poses with exponetial smoothing 
+        // pose_x = pose_x * exp_a + pre_pose_x * (1 - exp_a);
+        // pose_y = pose_y * exp_a + pre_pose_y * (1 - exp_a);
+        // pose_yaw = pose_yaw * exp_a + pre_pose_yaw * (1 - exp_a);
+
+        ros::Time curr_time = ros::Time::now();
+        double dt = (curr_time - pre_time).toSec();
+        pre_pose_vx = (pose_x - pre_pose_x) / dt;
+        pre_pose_vy = (pose_y - pre_pose_y) / dt;
+        pre_pose_vyaw = (pose_yaw - pre_pose_yaw) / dt;
+        cout << "pre_pose_vx " << pre_pose_vx << "." << endl;
+        cout << "pre_pose_vy " << pre_pose_vy << "." << endl;
+        cout << "pre_pose_vyaw " << pre_pose_vyaw << "." << endl;
+
         set_init_guess(pose_x, pose_y, pose_yaw);
 
         tf_brocaster(pose_x, pose_y, pose_yaw);
@@ -303,6 +378,7 @@ public:
 
     void set_init_guess(float x, float y, float yaw)
     {
+        // Set up the init_guess transformation matrix
         init_guess(0, 0) = cos(yaw);
         init_guess(0, 1) = -sin(yaw);
         init_guess(0, 3) = x;

@@ -31,7 +31,7 @@ pcl::PointCloud<pcl::PointXYZI>::Ptr create_radar_pc(Mat img)
     pcl::PointCloud<pcl::PointXYZI>::Ptr new_pc(new pcl::PointCloud<pcl::PointXYZI>);
     pcl::PointCloud<pcl::PointXYZI>::Ptr new_pc_filtered(new pcl::PointCloud<pcl::PointXYZI>);
     
-    // TODO Transform Polar Image to Cartesian Pointcloud
+    // Transform Polar Image to Cartesian Pointcloud
     // Mat img's shape (rows, cols) (2856, 400)
     float max_intensity = 0, min_intensity = 255;
     
@@ -42,11 +42,14 @@ pcl::PointCloud<pcl::PointXYZI>::Ptr create_radar_pc(Mat img)
         vector<pcl::PointXYZI> points;
         for (int r = 4; r < img.rows; r++) {
 
-            float range = double(r) * range_resolution;
-            if (range > 100.0)
+            // 
+            float range = double(r - 4) * range_resolution + range_resolution / 2;
+            float azimuth = (double(c) * (2 * M_PI / img.cols)) + (2 * M_PI / img.cols) / 2;
+            
+            // Filter outh the radar point that is too close or too far
+            if (range < 3.0 || range > 100.0)
                 continue;
 
-            float azimuth = (double(c) * (2 * M_PI / img.cols));
             float x = range * cos(azimuth);
             float y = range * -sin(azimuth);    // Flip 
             float z = 0;
@@ -74,7 +77,7 @@ pcl::PointCloud<pcl::PointXYZI>::Ptr create_radar_pc(Mat img)
 
     // cout << "min_intensity = " << min_intensity << ", max_intensity = " << max_intensity << "." << endl; 
 
-    return new_pc;
+    // return new_pc;
 
     // Create the filtering object
     // https://pcl.readthedocs.io/projects/tutorials/en/latest/statistical_outlier.html
