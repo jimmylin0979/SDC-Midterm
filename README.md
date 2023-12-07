@@ -1,5 +1,12 @@
 # Midterm_ws
 
+## Vidoe Links
+
+[![Track1](./imgs/video_track1.jpg)](https://youtu.be/XW1q0txjLHg)
+
+[![Track2](./imgs/video_track2.jpg)](https://youtu.be/-MOApY6Xbu8)
+
+
 ## Prerequisite
 
 1. Install Docker according to SDC Homework 1
