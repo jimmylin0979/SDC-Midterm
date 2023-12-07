@@ -1,6 +1,14 @@
 # Midterm_ws
 
+## Prerequisite
+
+1. Install Docker according to SDC Homework 1
+2. Make sure ~/midterm_ws/src existing
+3. Place /localization folder under ~/midterm_ws/src/
+
 ## Environment Setup
+
+Create docker environment
 
 ```bash
 xhost +local:
@@ -14,16 +22,16 @@ sudo docker run \
 --name ros \
 --user root \
 -e GRANT_SUDO=yes \
--v ~/midterm_ws_v2:/root/catkin_ws \
+-v ~/midterm_ws:/root/catkin_ws \
 softmac/sdc-course-docker:latest \
 bash
 ```
-
+<!-- 
 ```bash
 sudo docker exec -it ros bash
-```
+``` -->
 
-## 
+## Localization
 
 ```bash
 cd ~/catkin_ws
@@ -32,12 +40,16 @@ source devel/setup.bash
 roslaunch localization localization.launch
 ```
 
+## Visualization
+
 ```bash
 cd ~/catkin_ws
 catkin_make
 source devel/setup.bash
 roslaunch localization visualization.launch
 ```
+
+## Map Modification
 
 ```bash
 cd ~/catkin_ws
