@@ -1,4 +1,6 @@
-# Midterm_ws
+# SDC 2023 Midterm Competition - Radar Localization
+
+Using Radar images to find where you are on a Lidar map.
 
 ## Vidoe Links
 
